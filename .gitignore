@@ -1,0 +1,27 @@
+# Keil MDK
+Listings/
+Objects/
+*.o
+*.d
+*.crf
+*.htm
+*.dep
+*.map
+*.lst
+*.sct
+*.iex
+*.bak
+*.sct
+*.scr
+*.tra
+*.txt
+*.uvguix.*
+build.log
+
+# VS Code
+.vscode/
+
+# Windows
+Thumbs.db
+*.bak
+*.swp
