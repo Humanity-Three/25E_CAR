@@ -9,9 +9,6 @@
 #include "Delay.h"
 #include "grayscale_sensor.h"
 
-// 外部声明 g_sensor_data 数组（在 empty.c 中定义）
-extern uint16_t g_sensor_data[GRAYSCALE_SENSOR_CHANNELS];
-
 // 通道选择编码表 (AD2, AD1, AD0) -> 通道 0-7
 // 通道 0: AD2=0, AD1=0, AD0=0
 // 通道 1: AD2=0, AD1=0, AD0=1
@@ -27,8 +24,8 @@ extern uint16_t g_sensor_data[GRAYSCALE_SENSOR_CHANNELS];
  */
 void Grayscale_Sensor_Init(void)
 {
-    // 初始化通道选择引脚为输出模式
-    // 注意：需要在 SysConfig 中配置 GrayS_PORT 的对应引脚为输出模式
+    // GPIO 已在 SYSCFG_DL_GPIO_init() 中通过 sysconfig 配置为输出模式
+    // 此处将通道选择引脚初始置为 0
     SENSOR_AD0_WRITE(0);
     SENSOR_AD1_WRITE(0);
     SENSOR_AD2_WRITE(0);

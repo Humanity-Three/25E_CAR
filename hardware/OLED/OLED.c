@@ -59,56 +59,53 @@ uint8_t OLED_DisplayBuf[8][128];
 /*********************全局变量*/
 
 
-/*引脚配置*********************/
+/*********************引脚配置*/
 
 /**
-  * 函    数：OLED写SCL高低电平
-  * 参    数：要写入SCL的电平值，范围：0/1
+  * 函    数：硬件I2C阻塞发送
+  * 参    数：inst I2C实例
+  * 参    数：devAddr 从机地址（7位）
+  * 参    数：data 数据缓冲区
+  * 参    数：len 数据长度
   * 返 回 值：无
-  * 说    明：当上层函数需要写SCL时，此函数会被调用
-  *           用户需要根据参数传入的值，将SCL置为高电平或者低电平
-  *           当参数传入0时，置SCL为低电平，当参数传入1时，置SCL为高电平
+  * 说    明：使用硬件I2C发送数据，自动处理FIFO
   */
-void OLED_W_SCL(uint8_t BitValue)
+static void OLED_I2C_TransmitBlocking(I2C_Regs *inst, uint8_t devAddr, uint8_t *data, uint16_t len)
 {
-	/*根据BitValue的值，将SCL置高电平或者低电平*/
-	if(BitValue==1){
-        DL_GPIO_setPins(GPIO_OLED_PIN_SCL_PORT, GPIO_OLED_PIN_SCL_PIN);
-    }else{
-        DL_GPIO_clearPins(GPIO_OLED_PIN_SCL_PORT, GPIO_OLED_PIN_SCL_PIN);
+    uint16_t remaining = len;
+    uint16_t idx = 0;
+    uint16_t chunk;
+    
+    /* 复位传输寄存器 */
+    DL_I2C_resetControllerTransfer(inst);
+    
+    /* 填充第一批数据到TX FIFO（最多8字节） */
+    chunk = (remaining > 8) ? 8 : remaining;
+    DL_I2C_fillControllerTXFIFO(inst, &data[idx], chunk);
+    idx += chunk;
+    remaining -= chunk;
+    
+    /* 启动传输（自动发送START + 从机地址 + 数据，完成后自动STOP） */
+    DL_I2C_startControllerTransfer(inst, devAddr, DL_I2C_CONTROLLER_DIRECTION_TX, len);
+    
+    /* 不断补充FIFO直到所有数据都写入 */
+    while (remaining > 0) {
+        while (DL_I2C_isControllerTXFIFOFull(inst));  /* 等待FIFO有空位 */
+        chunk = (remaining > 8) ? 8 : remaining;
+        DL_I2C_fillControllerTXFIFO(inst, &data[idx], chunk);
+        idx += chunk;
+        remaining -= chunk;
     }
-	
-	/*添加延时，限制I2C速率在400kHz以内*/
-	delay_cycles(40);
-}
-
-/**
-  * 函    数：OLED写SDA高低电平
-  * 参    数：要写入SDA的电平值，范围：0/1
-  * 返 回 值：无
-  * 说    明：当上层函数需要写SDA时，此函数会被调用
-  *           用户需要根据参数传入的值，将SDA置为高电平或者低电平
-  *           当参数传入0时，置SDA为低电平，当参数传入1时，置SDA为高电平
-  */
-void OLED_W_SDA(uint8_t BitValue)
-{
-	/*根据BitValue的值，将SDA置高电平或者低电平*/
-	if(BitValue==1){
-        DL_GPIO_setPins(GPIO_OLED_PIN_SDA_PORT, GPIO_OLED_PIN_SDA_PIN);
-    }else{
-        DL_GPIO_clearPins(GPIO_OLED_PIN_SDA_PORT, GPIO_OLED_PIN_SDA_PIN);
-    }
-	
-	/*如果单片机速度过快，可在此添加适量延时，以避免超出I2C通信的最大速度*/
-	//...
+    
+    /* 等待传输完成 */
+    while (DL_I2C_getControllerStatus(inst) & DL_I2C_CONTROLLER_STATUS_BUSY);
 }
 
 /**
   * 函    数：OLED引脚初始化
   * 参    数：无
   * 返 回 值：无
-  * 说    明：当上层函数需要初始化时，此函数会被调用
-  *           用户需要将SCL和SDA引脚初始化为开漏模式，并释放引脚
+  * 说    明：硬件I2C的GPIO由SYSCFG_DL_GPIO_init()配置，此处仅做延时
   */
 void OLED_GPIO_Init(void)
 {
@@ -119,14 +116,6 @@ void OLED_GPIO_Init(void)
 	{
 		for (j = 0; j < 1000; j ++);
 	}
-	
-	/*将SCL和SDA设置为开漏输出，模拟I2C总线*/
-	DL_GPIO_enableHiZ(GPIO_OLED_PIN_SCL_IOMUX);
-	DL_GPIO_enableHiZ(GPIO_OLED_PIN_SDA_IOMUX);
-	
-	/*释放SCL和SDA（开漏模式下写1即为释放）*/
-	OLED_W_SCL(1);
-	OLED_W_SDA(1);
 }
 
 /*********************引脚配置*/
@@ -135,92 +124,40 @@ void OLED_GPIO_Init(void)
 /*通信协议*********************/
 
 /**
-  * 函    数：I2C起始
-  * 参    数：无
-  * 返 回 值：无
-  */
-void OLED_I2C_Start(void)
-{
-	OLED_W_SDA(1);		//释放SDA，确保SDA为高电平
-	OLED_W_SCL(1);		//释放SCL，确保SCL为高电平
-	OLED_W_SDA(0);		//在SCL高电平期间，拉低SDA，产生起始信号
-	OLED_W_SCL(0);		//起始后把SCL也拉低，即为了占用总线，也为了方便总线时序的拼接
-}
-
-/**
-  * 函    数：I2C终止
-  * 参    数：无
-  * 返 回 值：无
-  */
-void OLED_I2C_Stop(void)
-{
-	OLED_W_SDA(0);		//拉低SDA，确保SDA为低电平
-	OLED_W_SCL(1);		//释放SCL，使SCL呈现高电平
-	OLED_W_SDA(1);		//在SCL高电平期间，释放SDA，产生终止信号
-}
-
-/**
-  * 函    数：I2C发送一个字节
-  * 参    数：Byte 要发送的一个字节数据，范围：0x00~0xFF
-  * 返 回 值：无
-  */
-void OLED_I2C_SendByte(uint8_t Byte)
-{
-	uint8_t i;
-	
-	/*循环8次，主机依次发送数据的每一位*/
-	for (i = 0; i < 8; i++)
-	{
-		/*使用掩码的方式取出Byte的指定一位数据并写入到SDA线*/
-		/*两个!的作用是，让所有非零的值变为1*/
-		OLED_W_SDA(!!(Byte & (0x80 >> i)));
-		OLED_W_SCL(1);	//释放SCL，从机在SCL高电平期间读取SDA
-		OLED_W_SCL(0);	//拉低SCL，主机开始发送下一位数据
-	}
-	
-	/*释放SDA，等待从机应答*/
-	OLED_W_SDA(1);
-	OLED_W_SCL(1);		//额外的一个时钟，接收从机应答信号
-	OLED_W_SCL(0);
-}
-
-/**
-  * 函    数：OLED写命令
+  * 函    数：OLED写命令（硬件I2C）
   * 参    数：Command 要写入的命令值，范围：0x00~0xFF
   * 返 回 值：无
+  * 说    明：使用硬件I2C0传输，数据格式：[0x00(控制字节), Command]
   */
 void OLED_WriteCommand(uint8_t Command)
 {
-	OLED_ENTER_CRITICAL();		// 进入临界区，禁止中断
-	OLED_I2C_Start();				//I2C起始
-	OLED_I2C_SendByte(0x78);		//发送OLED的I2C从机地址
-	OLED_I2C_SendByte(0x00);		//控制字节，给0x00，表示即将写命令
-	OLED_I2C_SendByte(Command);		//写入指定的命令
-	OLED_I2C_Stop();				//I2C终止
-	OLED_EXIT_CRITICAL();			// 退出临界区，恢复中断
+	uint8_t data[2] = {0x00, Command};	/* 控制字节(命令) + 命令值 */
+	
+	OLED_ENTER_CRITICAL();
+	OLED_I2C_TransmitBlocking(OLED_I2C_INST, 0x3C, data, 2);
+	OLED_EXIT_CRITICAL();
 }
 
 /**
-  * 函    数：OLED写数据
+  * 函    数：OLED写数据（硬件I2C）
   * 参    数：Data 要写入数据的起始地址
   * 参    数：Count 要写入数据的数量
   * 返 回 值：无
+  * 说    明：使用硬件I2C0传输，数据格式：[0x40(控制字节), Data...]
   */
 void OLED_WriteData(uint8_t *Data, uint8_t Count)
 {
 	uint8_t i;
+	uint8_t buf[129];	/* 控制字节(数据) + 最多128字节数据 */
 	
-	OLED_ENTER_CRITICAL();		// 进入临界区，禁止中断
-	OLED_I2C_Start();				//I2C起始
-	OLED_I2C_SendByte(0x78);		//发送OLED的I2C从机地址
-	OLED_I2C_SendByte(0x40);		//控制字节，给0x40，表示即将写数据
-	/*循环Count次，进行连续的数据写入*/
-	for (i = 0; i < Count; i ++)
-	{
-		OLED_I2C_SendByte(Data[i]);	//依次发送Data的每一个数据
+	buf[0] = 0x40;		/* 控制字节，表示写数据 */
+	for (i = 0; i < Count; i++) {
+		buf[i + 1] = Data[i];
 	}
-	OLED_I2C_Stop();				//I2C终止
-	OLED_EXIT_CRITICAL();			// 退出临界区，恢复中断
+	
+	OLED_ENTER_CRITICAL();
+	OLED_I2C_TransmitBlocking(OLED_I2C_INST, 0x3C, buf, Count + 1);
+	OLED_EXIT_CRITICAL();
 }
 
 /*********************通信协议*/

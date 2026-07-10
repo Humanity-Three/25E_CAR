@@ -5,20 +5,23 @@
 #include "ti_msp_dl_config.h"
 
 //=====================================================================================
-//  引脚配置接口 (Pin Configuration)
+//  引脚配置接口 - 以 SysConfig 生成的 ti_msp_dl_config.h 为准
+//  引脚组: GRAY_SENSOR (PORT=GPIOA)
+//  AD0=PA14, AD1=PA15, AD2=PA16, OUT=PA17
 //=====================================================================================
-// --- 通道选择引脚定义 (AD0, AD1, AD2)  Channel selection pin definition (AD0, AD1, AD2)---
-#define SENSOR_AD0_PORT         GPIO_Gray_PIN_Gray_AD0_PORT
-#define SENSOR_AD0_PIN          GPIO_Gray_PIN_Gray_AD0_PIN
 
-#define SENSOR_AD1_PORT         GPIO_Gray_PIN_Gray_AD1_PORT
-#define SENSOR_AD1_PIN          GPIO_Gray_PIN_Gray_AD1_PIN
+// 所有引脚共用同一个端口 GPIOA（由 GRAY_SENSOR_PORT 定义）
+#define SENSOR_AD0_PORT         GRAY_SENSOR_PORT
+#define SENSOR_AD0_PIN          GRAY_SENSOR_GRAY_SENSOR_AD0_PIN
 
-#define SENSOR_AD2_PORT         GPIO_Gray_PIN_Gray_AD2_PORT
-#define SENSOR_AD2_PIN          GPIO_Gray_PIN_Gray_AD2_PIN
+#define SENSOR_AD1_PORT         GRAY_SENSOR_PORT
+#define SENSOR_AD1_PIN          GRAY_SENSOR_GRAY_SENSOR_AD1_PIN
 
-#define GrayS_OUT_PORT          GPIO_Gray_PIN_Gray_Read_PORT
-#define GrayS_OUT_PIN           GPIO_Gray_PIN_Gray_Read_PIN
+#define SENSOR_AD2_PORT         GRAY_SENSOR_PORT
+#define SENSOR_AD2_PIN          GRAY_SENSOR_GRAY_SENSOR_AD2_PIN
+
+#define GrayS_OUT_PORT          GRAY_SENSOR_PORT
+#define GrayS_OUT_PIN           GRAY_SENSOR_GRAY_SENSOR_DATA_PIN
 
 //=====================================================================================
 //  GPIO 操作抽象接口 (GPIO Operation Macros)

@@ -41,186 +41,116 @@ float accel_pitch, accel_roll;
 #define I2C_EXIT_CRITICAL()
 
 //=====================================================================
-// 软件模拟 I2C（参考嘉立创官方示例）
-// SDA = PA0, SCL = PA1
+// 硬件 I2C1 通信（根据 sysconfig：I2C1, SDA=PA10, SCL=PA11）
 //=====================================================================
 
-#define IIC_SDA_PORT    GPIOA
-#define IIC_SDA_PIN     DL_GPIO_PIN_0
-#define IIC_SCL_PORT    GPIOA
-#define IIC_SCL_PIN     DL_GPIO_PIN_1
-
-static void SDA_OUT(void)
+/**
+  * 函    数：硬件I2C阻塞发送
+  * 参    数：inst I2C实例
+  * 参    数：devAddr 从机地址（7位）
+  * 参    数：data 数据缓冲区
+  * 参    数：len 数据长度
+  * 返 回 值：无
+  * 说    明：使用硬件I2C发送数据，自动处理FIFO补充
+  */
+static void I2C_TransmitBlocking(I2C_Regs *inst, uint8_t devAddr, uint8_t *data, uint16_t len)
 {
-    DL_GPIO_initDigitalOutput(IOMUX_PINCM1);
-}
+    uint16_t remaining = len;
+    uint16_t idx = 0;
+    uint16_t chunk;
 
-static void SDA_IN(void)
-{
-    DL_GPIO_initDigitalInput(IOMUX_PINCM1);
-}
+    DL_I2C_resetControllerTransfer(inst);
 
-static uint8_t SDA_GET(void)
-{
-    return (DL_GPIO_readPins(IIC_SDA_PORT, IIC_SDA_PIN) & IIC_SDA_PIN) ? 1 : 0;
-}
+    chunk = (remaining > 8) ? 8 : remaining;
+    DL_I2C_fillControllerTXFIFO(inst, &data[idx], chunk);
+    idx += chunk;
+    remaining -= chunk;
 
-static void SDA_SET(uint8_t x)
-{
-    if (x)
-        DL_GPIO_setPins(IIC_SDA_PORT, IIC_SDA_PIN);
-    else
-        DL_GPIO_clearPins(IIC_SDA_PORT, IIC_SDA_PIN);
-}
+    DL_I2C_startControllerTransfer(inst, devAddr, DL_I2C_CONTROLLER_DIRECTION_TX, len);
 
-static void SCL_SET(uint8_t x)
-{
-    if (x)
-        DL_GPIO_setPins(IIC_SCL_PORT, IIC_SCL_PIN);
-    else
-        DL_GPIO_clearPins(IIC_SCL_PORT, IIC_SCL_PIN);
-}
-
-static void IIC_Delay(void)
-{
-    Delay_us(5);
-}
-
-static void IIC_Start(void)
-{
-    SDA_OUT();
-    SCL_SET(1);
-    SDA_SET(1);
-    IIC_Delay();
-    SDA_SET(0);
-    IIC_Delay();
-    SCL_SET(0);
-}
-
-static void IIC_Stop(void)
-{
-    SDA_OUT();
-    SCL_SET(0);
-    SDA_SET(0);
-    IIC_Delay();
-    SCL_SET(1);
-    IIC_Delay();
-    SDA_SET(1);
-    IIC_Delay();
-}
-
-static uint8_t IIC_WaitAck(void)
-{
-    uint8_t ack_flag = 10;
-    SCL_SET(0);
-    SDA_SET(1);
-    SDA_IN();
-    IIC_Delay();
-    SCL_SET(1);
-    IIC_Delay();
-    while (SDA_GET() && ack_flag) {
-        ack_flag--;
-        IIC_Delay();
+    while (remaining > 0) {
+        while (DL_I2C_isControllerTXFIFOFull(inst));
+        chunk = (remaining > 8) ? 8 : remaining;
+        DL_I2C_fillControllerTXFIFO(inst, &data[idx], chunk);
+        idx += chunk;
+        remaining -= chunk;
     }
-    SCL_SET(0);
-    SDA_OUT();
-    if (ack_flag == 0) {
-        IIC_Stop();
+    while (DL_I2C_getControllerStatus(inst) & DL_I2C_CONTROLLER_STATUS_BUSY);
+}
+
+/**
+  * 函    数：硬件I2C阻塞读取（先写寄存器地址，再重复起始+读）
+  * 参    数：inst I2C实例
+  * 参    数：devAddr 从机地址（7位）
+  * 参    数：regaddr 寄存器地址
+  * 参    数：rxBuf 接收缓冲区
+  * 参    数：rxLen 要读取的字节数
+  * 返 回 值：0=成功
+  */
+static uint8_t I2C_ReadRegBlocking(I2C_Regs *inst, uint8_t devAddr, uint8_t regaddr, uint8_t *rxBuf, uint8_t rxLen)
+{
+    uint8_t i;
+
+    DL_I2C_resetControllerTransfer(inst);
+
+    /* Step 1: 发送寄存器地址（带START，不带STOP，准备重复起始） */
+    DL_I2C_fillControllerTXFIFO(inst, &regaddr, 1);
+    DL_I2C_startControllerTransferAdvanced(inst, devAddr,
+        DL_I2C_CONTROLLER_DIRECTION_TX, 1,
+        DL_I2C_CONTROLLER_START_ENABLE,
+        DL_I2C_CONTROLLER_STOP_DISABLE,
+        DL_I2C_CONTROLLER_ACK_ENABLE);
+    while (DL_I2C_getControllerStatus(inst) & DL_I2C_CONTROLLER_STATUS_BUSY);
+
+    /* 检查错误（如NACK） */
+    if (DL_I2C_getControllerStatus(inst) & DL_I2C_CONTROLLER_STATUS_ERROR) {
         return 1;
     }
+
+    /* Step 2: 重复起始 + 读取数据（自动STOP） */
+    DL_I2C_startControllerTransfer(inst, devAddr,
+        DL_I2C_CONTROLLER_DIRECTION_RX, rxLen);
+    while (DL_I2C_getControllerStatus(inst) & DL_I2C_CONTROLLER_STATUS_BUSY);
+
+    /* 从RX FIFO读取数据 */
+    for (i = 0; i < rxLen; i++) {
+        rxBuf[i] = DL_I2C_receiveControllerData(inst);
+    }
+
     return 0;
 }
 
-static void IIC_SendAck(uint8_t ack)
-{
-    SDA_OUT();
-    SCL_SET(0);
-    SDA_SET(ack ? 1 : 0);
-    IIC_Delay();
-    SCL_SET(1);
-    IIC_Delay();
-    SCL_SET(0);
-    SDA_SET(1);
-}
-
-static void Send_Byte(uint8_t dat)
-{
-    int i;
-    SDA_OUT();
-    SCL_SET(0);
-    for (i = 0; i < 8; i++) {
-        SDA_SET((dat & 0x80) >> 7);
-        IIC_Delay();
-        SCL_SET(1);
-        IIC_Delay();
-        SCL_SET(0);
-        IIC_Delay();
-        dat <<= 1;
-    }
-}
-
-static uint8_t Read_Byte(void)
-{
-    uint8_t i, receive = 0;
-    SDA_IN();
-    for (i = 0; i < 8; i++) {
-        SCL_SET(0);
-        IIC_Delay();
-        SCL_SET(1);
-        IIC_Delay();
-        receive <<= 1;
-        if (SDA_GET()) {
-            receive |= 1;
-        }
-        IIC_Delay();
-    }
-    SCL_SET(0);
-    return receive;
-}
-
 //=====================================================================
-// MPU6050 I2C 读写
+// MPU6050 I2C 读写（硬件I2C1）
 //=====================================================================
 
 static uint8_t MPU6050_WriteReg(uint8_t addr, uint8_t regaddr, uint8_t num, uint8_t *regdata)
 {
     uint16_t i;
-    I2C_ENTER_CRITICAL();
-    IIC_Start();
-    Send_Byte((addr << 1) | 0);
-    if (IIC_WaitAck() == 1) { IIC_Stop(); I2C_EXIT_CRITICAL(); return 1; }
-    Send_Byte(regaddr);
-    if (IIC_WaitAck() == 1) { IIC_Stop(); I2C_EXIT_CRITICAL(); return 2; }
+    uint8_t buf[256];   /* 寄存器地址 + 数据 */
+    uint16_t len = 1 + num;
+
+    buf[0] = regaddr;
     for (i = 0; i < num; i++) {
-        Send_Byte(regdata[i]);
-        if (IIC_WaitAck() == 1) { IIC_Stop(); I2C_EXIT_CRITICAL(); return (3 + i); }
+        buf[1 + i] = regdata[i];
     }
-    IIC_Stop();
+
+    I2C_ENTER_CRITICAL();
+    I2C_TransmitBlocking(MPU_6050_I2C_INST, addr, buf, len);
     I2C_EXIT_CRITICAL();
+
     return 0;
 }
 
 static uint8_t MPU6050_ReadData(uint8_t addr, uint8_t regaddr, uint8_t num, uint8_t *Read)
 {
-    uint8_t i;
+    uint8_t ret;
+
     I2C_ENTER_CRITICAL();
-    IIC_Start();
-    Send_Byte((addr << 1) | 0);
-    if (IIC_WaitAck() == 1) { IIC_Stop(); I2C_EXIT_CRITICAL(); return 1; }
-    Send_Byte(regaddr);
-    if (IIC_WaitAck() == 1) { IIC_Stop(); I2C_EXIT_CRITICAL(); return 2; }
-    IIC_Start();
-    Send_Byte((addr << 1) | 1);
-    if (IIC_WaitAck() == 1) { IIC_Stop(); I2C_EXIT_CRITICAL(); return 3; }
-    for (i = 0; i < (num - 1); i++) {
-        Read[i] = Read_Byte();
-        IIC_SendAck(0);
-    }
-    Read[i] = Read_Byte();
-    IIC_SendAck(1);
-    IIC_Stop();
+    ret = I2C_ReadRegBlocking(MPU_6050_I2C_INST, addr, regaddr, Read, num);
     I2C_EXIT_CRITICAL();
-    return 0;
+
+    return ret;
 }
 
 void MPU6050_Write_Reg(uint8_t reg, uint8_t data)
@@ -287,10 +217,7 @@ uint8_t MPU6050_Init(void)
     uint8_t whoami;
     uint8_t reg_val;
 
-    // 初始化 GPIO 为开漏输出
-    SDA_OUT();
-    SCL_SET(1);
-    SDA_SET(1);
+    // 硬件 I2C1 的 GPIO 由 SYSCFG_DL_GPIO_init() 配置，无需手动初始化
     Delay_ms(10);
 
     // 复位 MPU6050

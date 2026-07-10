@@ -72,7 +72,7 @@
           <BeforeMake>
             <RunUserProg1>1</RunUserProg1>
             <RunUserProg2>0</RunUserProg2>
-            <UserProg1Name>"D:\ti\sysconfig\sysconfig_cli.bat" -o "$P" -s "D:\ti\mspm0\mspm0_sdk_2_06_00_05\.metadata\product.json" --compiler keil "$Pempty.syscfg"</UserProg1Name>
+            <UserProg1Name>"D:\ti\sysconfig\sysconfig_cli.bat" --product "D:\ti\mspm0\mspm0_sdk_2_06_00_05\.metadata\product.json" --compiler keil --device MSPM0G3507 --package "LQFP-64(PM)" --script "D:\keil_projects\25E\empty.syscfg" --output "D:\keil_projects\25E\"</UserProg1Name>
             <UserProg2Name></UserProg2Name>
             <UserProg1Dos16Mode>0</UserProg1Dos16Mode>
             <UserProg2Dos16Mode>0</UserProg2Dos16Mode>
@@ -404,24 +404,14 @@
               <FilePath>.\hardware\Grayscale_Sensor\grayscale_sensor.c</FilePath>
             </File>
             <File>
-              <FileName>grayscale_sensor.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>.\hardware\Grayscale_Sensor\grayscale_sensor.h</FilePath>
+              <FileName>Interrupt.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Interrupt.c</FilePath>
             </File>
             <File>
-              <FileName>MPU6050.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>.\hardware\MPU6050\MPU6050.h</FilePath>
-            </File>
-            <File>
-              <FileName>OLED.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>.\hardware\OLED\OLED.h</FilePath>
-            </File>
-            <File>
-              <FileName>OLED_DATA.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>.\hardware\OLED\OLED_DATA.h</FilePath>
+              <FileName>main.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\main.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -481,6 +471,16 @@
                 </FileArmAds>
               </FileOption>
             </File>
+            <File>
+              <FileName>ti_msp_dl_config.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\ti_msp_dl_config.c</FilePath>
+            </File>
+            <File>
+              <FileName>ti_msp_dl_config.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\ti_msp_dl_config.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -520,6 +520,21 @@
               <FileName>startup_mspm0g350x_uvision.s</FileName>
               <FileType>2</FileType>
               <FilePath>.\library\startup_mspm0g350x_uvision.s</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Interrupt</GroupName>
+          <Files>
+            <File>
+              <FileName>Interrupt.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Interrupt.c</FilePath>
+            </File>
+            <File>
+              <FileName>Interrupt.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Interrupt.h</FilePath>
             </File>
           </Files>
         </Group>

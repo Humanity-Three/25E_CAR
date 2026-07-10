@@ -3,13 +3,6 @@
 #include "ti_msp_dl_config.h"
 #include <stdint.h>
 #include "OLED_DATA.h"
-#ifndef GPIO_OLED_PIN_SCL_PORT
-#define GPIO_OLED_PIN_SCL_PORT GPIO_OLED_PORT 
-#endif
-
-#ifndef GPIO_OLED_PIN_SDA_PORT
-#define GPIO_OLED_PIN_SDA_PORT GPIO_OLED_PORT 
-#endif
 /*参数宏定义*********************/
 
 /*FontSize参数取值*/
