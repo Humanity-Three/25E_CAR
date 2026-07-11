@@ -115,7 +115,7 @@ extern "C" {
 #define OLED_I2C_INST                                                       I2C0
 #define OLED_I2C_INST_IRQHandler                                 I2C0_IRQHandler
 #define OLED_I2C_INST_INT_IRQN                                     I2C0_INT_IRQn
-#define OLED_I2C_BUS_SPEED_HZ                                            1000000
+#define OLED_I2C_BUS_SPEED_HZ                                             400000
 #define GPIO_OLED_I2C_SDA_PORT                                             GPIOA
 #define GPIO_OLED_I2C_SDA_PIN                                      DL_GPIO_PIN_0
 #define GPIO_OLED_I2C_IOMUX_SDA                                   (IOMUX_PINCM1)
@@ -129,7 +129,7 @@ extern "C" {
 #define MPU_6050_I2C_INST                                                   I2C1
 #define MPU_6050_I2C_INST_IRQHandler                             I2C1_IRQHandler
 #define MPU_6050_I2C_INST_INT_IRQN                                 I2C1_INT_IRQn
-#define MPU_6050_I2C_BUS_SPEED_HZ                                        1000000
+#define MPU_6050_I2C_BUS_SPEED_HZ                                         400000
 #define GPIO_MPU_6050_I2C_SDA_PORT                                         GPIOA
 #define GPIO_MPU_6050_I2C_SDA_PIN                                 DL_GPIO_PIN_10
 #define GPIO_MPU_6050_I2C_IOMUX_SDA                              (IOMUX_PINCM21)

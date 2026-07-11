@@ -55,6 +55,9 @@ uint8_t OLED_DisplayBuf[8][128];
 // #define OLED_EXIT_CRITICAL()     __asm(" CPSIE I ")
 #define OLED_ENTER_CRITICAL()
 #define OLED_EXIT_CRITICAL()
+#define OLED_I2C_ADDR       0x3C
+#define OLED_DATA_CHUNK     7
+#define OLED_I2C_TIMEOUT    100000U
 
 /*********************全局变量*/
 
@@ -70,7 +73,7 @@ uint8_t OLED_DisplayBuf[8][128];
   * 返 回 值：无
   * 说    明：使用硬件I2C发送数据，自动处理FIFO
   */
-static void OLED_I2C_TransmitBlocking(I2C_Regs *inst, uint8_t devAddr, uint8_t *data, uint16_t len)
+__attribute__((unused)) static void OLED_I2C_TransmitBlocking_Old(I2C_Regs *inst, uint8_t devAddr, uint8_t *data, uint16_t len)
 {
     uint16_t remaining = len;
     uint16_t idx = 0;
@@ -99,6 +102,24 @@ static void OLED_I2C_TransmitBlocking(I2C_Regs *inst, uint8_t devAddr, uint8_t *
     
     /* 等待传输完成 */
     while (DL_I2C_getControllerStatus(inst) & DL_I2C_CONTROLLER_STATUS_BUSY);
+}
+
+static void OLED_I2C_TransmitBlocking(I2C_Regs *inst, uint8_t devAddr, uint8_t *data, uint16_t len)
+{
+    uint32_t timeout;
+
+    timeout = OLED_I2C_TIMEOUT;
+    while ((DL_I2C_getControllerStatus(inst) & DL_I2C_CONTROLLER_STATUS_BUSY) && (timeout-- > 0U)) {
+    }
+
+    DL_I2C_resetControllerTransfer(inst);
+    DL_I2C_flushControllerTXFIFO(inst);
+    DL_I2C_fillControllerTXFIFO(inst, data, len);
+    DL_I2C_startControllerTransfer(inst, devAddr, DL_I2C_CONTROLLER_DIRECTION_TX, len);
+
+    timeout = OLED_I2C_TIMEOUT;
+    while ((DL_I2C_getControllerStatus(inst) & DL_I2C_CONTROLLER_STATUS_BUSY) && (timeout-- > 0U)) {
+    }
 }
 
 /**
@@ -134,7 +155,7 @@ void OLED_WriteCommand(uint8_t Command)
 	uint8_t data[2] = {0x00, Command};	/* 控制字节(命令) + 命令值 */
 	
 	OLED_ENTER_CRITICAL();
-	OLED_I2C_TransmitBlocking(OLED_I2C_INST, 0x3C, data, 2);
+	OLED_I2C_TransmitBlocking(OLED_I2C_INST, OLED_I2C_ADDR, data, 2);
 	OLED_EXIT_CRITICAL();
 }
 
@@ -145,7 +166,7 @@ void OLED_WriteCommand(uint8_t Command)
   * 返 回 值：无
   * 说    明：使用硬件I2C0传输，数据格式：[0x40(控制字节), Data...]
   */
-void OLED_WriteData(uint8_t *Data, uint8_t Count)
+__attribute__((unused)) void OLED_WriteData_Old(uint8_t *Data, uint8_t Count)
 {
 	uint8_t i;
 	uint8_t buf[129];	/* 控制字节(数据) + 最多128字节数据 */
@@ -156,7 +177,32 @@ void OLED_WriteData(uint8_t *Data, uint8_t Count)
 	}
 	
 	OLED_ENTER_CRITICAL();
-	OLED_I2C_TransmitBlocking(OLED_I2C_INST, 0x3C, buf, Count + 1);
+	OLED_I2C_TransmitBlocking(OLED_I2C_INST, OLED_I2C_ADDR, buf, Count + 1);
+	OLED_EXIT_CRITICAL();
+}
+
+void OLED_WriteData(uint8_t *Data, uint8_t Count)
+{
+	uint8_t i;
+	uint8_t offset = 0;
+	uint8_t chunk;
+	uint8_t buf[OLED_DATA_CHUNK + 1];
+
+	OLED_ENTER_CRITICAL();
+	while (offset < Count) {
+		chunk = (uint8_t)(Count - offset);
+		if (chunk > OLED_DATA_CHUNK) {
+			chunk = OLED_DATA_CHUNK;
+		}
+
+		buf[0] = 0x40;
+		for (i = 0; i < chunk; i++) {
+			buf[i + 1] = Data[offset + i];
+		}
+
+		OLED_I2C_TransmitBlocking(OLED_I2C_INST, OLED_I2C_ADDR, buf, (uint16_t)(chunk + 1U));
+		offset = (uint8_t)(offset + chunk);
+	}
 	OLED_EXIT_CRITICAL();
 }
 

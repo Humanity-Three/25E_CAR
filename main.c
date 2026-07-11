@@ -1,232 +1,136 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include "MPU6050.h"
+#include <stdint.h>
+#include "control.h"
+#include "ti_msp_dl_config.h"
+#include "grayscale_sensor.h"
+#include "Delay.h"
 #include "OLED.h"
-#include "Interrupt.h"
-#include "ti_msp_dl_config.h”
 
-
-
-
-
-
-
- NVIC_EnableIRQ(TIMG7_IRQn);     // 10ms 定时器
-    NVIC_EnableIRQ(TIMG6_IRQn);     // 50ms 定时器
-
-    DL_TimerG_startTimer(TIMER_0_INST);            // 启动 10ms 定时器
-    DL_TimerG_startTimer(MOTOR_ENCODER_READ_INST); // 启动 50ms 定时器
-
-
-    OLED_Init();
-    MPU6050_Init();
-
-
-/*三段式状态机状态编码*/
-typedef enum{
-    STATE_IDLE,//待机
-    STATE_INPUT,//等待输入
-    STATE_RUNNING,//循迹模式
-    STATE_COLLIMATION,//打靶模式
-    STATE_COLLIMATION_INPUT,//自行瞄准等待输入
-    STATE_RUNNING_COLLIMATION,//自行瞄准模式
+typedef enum {
+    STATE_IDLE = 0,
+    STATE_INPUT,
+    STATE_RUNNING,
+#if 0
+    /* K230 targeting states are reserved for the next stage. */
+    STATE_COLLIMATION,
+    STATE_COLLIMATION_INPUT,
+    STATE_RUNNING_COLLIMATION,
+#endif
     STATE_STOP
 } car_STATE;
 
-static car_STATE current_state = STATE_IDLE;
-static car_STATE next_state = STATE_IDLE;
-static int number_of_circles = 0;//设定的圈数
-static int true_number_of_circles = 0;//实际的圈数
-
-typedef struct{
+typedef struct {
     uint8_t key1;
     uint8_t key2;
-}car_KEY;
+} car_KEY;
 
-void move_to_next_state(car_KEY key){
-    next_state = current_state;
-    number_of_circles = 0;//设定的圈数
-    switch(current_state){
-case STATE_IDLE:
-number_of_circles= 0;
-true_number_of_circles=0;
-if(key.key1 == 0){
-    next_state = STATE_INPUT;
-}else if(key.key2 == 0){
-    next_state = STATE_COLLIMATION;
-}else if(key.key1 == 0 && key.key2 == 0){
-    next_state = STATE_COLLIMATION_INPUT;
-}else{
-     next_state = STATE_IDLE;
-}
-break;
+static car_STATE current_state = STATE_IDLE;
+static car_STATE next_state = STATE_IDLE;
+static int number_of_circles = 0;
+static int true_number_of_circles = 0;
 
-
-
-case STATE_INPUT:
-/*while(key.key2==1){
-    if(key.key1==0){
-        number_of_circles++;
-        if(number_of_circles>5){
-            number_of_circles=0;
-        }
-    }
-}*/
-if(key.key2==0){
-    next_state=STATE_RUNNING;
-}
-break;
-
-
-
-
-case STATE_COLLIMATION_INPUT:
-/*while(key.key2==1){
-    if(key.key1==0){
-        number_of_circles++;
-        if(number_of_circles>5){
-            number_of_circles=0;
-        }
-    }
-}*/
-if(key.key2==0){
-    next_state=STATE_RUNNING_COLLIMATION;
-}
-break;
-
-
-
-
-case STATE_RUNNING:
-if (true_number_of_circles == number_of_circles){
-    next_state = STATE_STOP;
-}
-break;
-
-
-
-
-case STATE_COLLIMATION:
-if(key.key2==0){
-    next_state=STATE_STOP;
-}
-break;
-
-
-
-
-case STATE_RUNNING_COLLIMATION:
-if (true_number_of_circles == number_of_circles){
-    next_state = STATE_STOP;
-}break;
-
-case STATE_STOP:
-number_of_circles=0;
-true_number_of_circles=0;
-next_state=STATE_IDLE;
-break;
-
-    }
-}
-
-
-
-
-
-void station_action(car_KEY key)
+static uint8_t Key_ReadPressed(uint32_t pin)
 {
-switch(current_state){
-
-case STATE_IDLE:
-number_of_circles=0;//目标圈数归零
-true_number_of_circles=0;//实际圈数归零
-OLED_Clear();
-OLED_ShowString(0,0,"IDLE");
-break;
-
-
-
-
-case STATE_INPUT:
-OLED_Clear();
-OLED_ShowString(0,0,"INPUT");
-while(key.key2==1){
-    if(key.key1==0){
-        number_of_circles++;
-        if(number_of_circles>5){
-            number_of_circles=0;
-        }
-    }
-}OLED_ShowString(0,1,"Circles:");
-OLED_ShowInt(1, 1, number_of_circles, 1);
-break;
-
-
-
-
-
-
-
-
-case STATE_RUNNING:
-OLED_Clear();
-OLED_ShowString(0,0,"RUNNING");
-OLED_ShowString(0,1,"Circles:");
-OLED_ShowInt(1, 1, true_number_of_circles, 1);
-break;
-
-
-
-case STATE_COLLIMATION:
-OLED_Clear();
-OLED_ShowString(0,0,"COLIMATION");
-break;
-
-
-
-case STATE_COLLIMATION_INPUT:
-OLED_Clear();
-OLED_ShowString(0,0,"COLIMATION_INPUT");
-while(key.key2==1){
-    if(key.key1==0){
-        number_of_circles++;
-        if(number_of_circles>5){
-            number_of_circles=0;
-        }
-    }
-}
-OLED_ShowString(0,1,"Circles:");
-OLED_ShowNum(1, 1, number_of_circles, 1);
-
-break;
-
-
-
-case STATE_RUNNING_COLLIMATION:
-OLED_Clear();
-OLED_ShowString(0,0,"RUNNING_COLLIMATION");
-break;
-
-
-
-case STATE_STOP:
-number_of_circles=0;
-true_number_of_circles=0;
-break;
-    }
+    return (DL_GPIO_readPins(KEY_PORT, pin) == 0U) ? 1U : 0U;
 }
 
-void main()
+static car_KEY Key_Read(void)
 {
-
     car_KEY key;
-    while(1){
 
-        key.key1 = DL_GPIO_readPins(GPIO_B,6);
-        key.key2 = DL_GPIO_readPins(GPIO_B,7);
+    key.key1 = Key_ReadPressed(KEY_KEY_1_PIN);
+    key.key2 = Key_ReadPressed(KEY_KEY_2_PIN);
+    return key;
+}
+
+static void move_to_next_state(car_KEY key)
+{
+    next_state = current_state;
+
+    switch (current_state) {
+    case STATE_IDLE:
+        number_of_circles = 0;
+        true_number_of_circles = 0;
+        if (key.key1 != 0U) {
+            next_state = STATE_INPUT;
+        }
+        break;
+
+    case STATE_INPUT:
+        if (key.key2 != 0U) {
+            Tracking_Reset();
+            next_state = STATE_RUNNING;
+        }
+        break;
+
+    case STATE_RUNNING:
+        if (key.key2 != 0U) {
+            next_state = STATE_STOP;
+        } else if ((number_of_circles > 0) &&
+                   (true_number_of_circles >= number_of_circles)) {
+            next_state = STATE_STOP;
+        }
+        break;
+
+    case STATE_STOP:
+    default:
+        next_state = STATE_IDLE;
+        break;
+    }
+}
+
+static void station_action(car_KEY key)
+{
+    static uint8_t key1_last = 0U;
+
+    switch (current_state) {
+    case STATE_IDLE:
+        Motor_SetSpeed(0, 0);
+        break;
+
+    case STATE_INPUT:
+        if ((key.key1 != 0U) && (key1_last == 0U)) {
+            number_of_circles++;
+            if (number_of_circles > 5) {
+                number_of_circles = 0;
+            }
+        }
+        Motor_SetSpeed(0, 0);
+        break;
+
+    case STATE_RUNNING:
+        Tracking_Run();
+        break;
+
+    case STATE_STOP:
+    default:
+        number_of_circles = 0;
+        true_number_of_circles = 0;
+        Tracking_Reset();
+        Motor_SetSpeed(0, 0);
+        break;
+    }
+
+    key1_last = key.key1;
+}
+
+int main(void)
+{
+    car_KEY key;
+
+    SYSCFG_DL_init();
+    Grayscale_Sensor_Init();
+    Motor_Init();
+    Tracking_Init();
+    OLED_Init();
+    OLED_ShowString(0, 0, (char *)"25E READY", OLED_8X16);
+    OLED_ShowString(0, 16, (char *)"KEY1 INPUT", OLED_6X8);
+    OLED_Update();
+
+    while (1) {
+        key = Key_Read();
+        current_state = next_state;
         move_to_next_state(key);
         station_action(key);
+        Delay_ms(5);
     }
-
-
 }
